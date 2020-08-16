@@ -2,12 +2,14 @@ import os
 import sys
 import spotipy
 import spotipy.util as util
-# import json
+import json
 import numpy as np
 from itertools import compress
 import tkinter as tk
 from tkinter import ttk
 import urllib.request # for saving images
+import pprint 
+pp = pprint.PrettyPrinter(indent=4)
 
 # pyinstaller.exe --onefile --icon=spotify_icon_white.ico AlbumCoverDL.py
 
@@ -64,8 +66,8 @@ class PlaceholderEntry(ttk.Entry):
 
 def search_API(dummy=1):    
     global image_urls
-    global album_names
     global current_artist
+    global artist_id
     
     artist = search_field.get() # get artist search query
     # handle empty search query
@@ -81,49 +83,132 @@ def search_API(dummy=1):
         display.configure(state=tk.DISABLED)
         
         # artist found
-        search_results = spotObj.search(artist,limit=1,offset=0,type='artist')
+        search_results = spotObj.search(artist,limit=1,offset=0,type='artist') # change limit to >1 to allow more than 1 artist returned
         artist_info = search_results['artists']['items'][0]
         artist_name = artist_info['name']
         current_artist = artist_name
         artist_id = artist_info['id'] # use artist id to find albums
+        
         display.configure(state=tk.NORMAL)
         display.delete("end-2l","end-1l")
         display.insert(tk.END,'GENERATE ',("a"))
-        display.insert(tk.END,'(or Ctrl + G) if this is the artist:\n' + artist_name + '\n')
+        display.insert(tk.END,'(Ctrl + G or Alt + G) if this is the artist:\n' + current_artist + '\n')
         display.configure(state=tk.DISABLED)
-
-        artist_releases = spotObj.artist_albums(artist_id)['items'] # all of artists releases 
-        
-        release_type = [release['album_type'] for release in artist_releases]
-        album_indices = [_type == 'album' for _type in release_type]
-        artist_albums = list(compress(artist_releases, album_indices)) # only albums
-#         print(json.dumps(artist_albums,sort_keys=True,indent=4))
-        
-        unique_names = [] # to prevent duplciates
-        image_urls = [] # clear image url list
-
-        for album in artist_albums:
-            album_name = album['name']
-            # first ensure album is a unique entry 
-            if album_name not in unique_names:
-                if album['images']: # first check that image list not empty for album
-                    image_url = album['images'][0]['url']
-                    image_urls.append(image_url)
-                    unique_names.append(album_name)
-        album_names = unique_names
-        
         
 def generate_links(dummy=1):
     global image_urls
+    global artist_id
+    global current_artist
+    global album_names
+
+    display.configure(state=tk.NORMAL)
+    display.insert(tk.END, 'grabbing images...\n')
+    display.update()
+    display.configure(state=tk.DISABLED)
+
+    artist_releases = spotObj.artist_albums(artist_id)['items'] # all of artists releases 
+    release_type = [release['album_type'] for release in artist_releases]
+    album_indices = [_type == 'album' for _type in release_type]
+    artist_albums = list(compress(artist_releases, album_indices)) # only albums
+    
+    release_type = [release['album_type'] for release in artist_releases]
+    album_indices = [_type == 'album' for _type in release_type]
+    artist_albums = list(compress(artist_releases, album_indices)) # only albums
+#         print(json.dumps(artist_albums,sort_keys=True,indent=4))
+    
+    # store album names and images
+    unique_names = [] # to prevent duplciates
+    image_urls = [] # clear image url list
+    for album in artist_albums:
+        album_name = album['name']
+        # first ensure album is a unique entry 
+        if album_name not in unique_names:
+            if album['images']: # then check that image list not empty for album
+                image_url = album['images'][0]['url']
+                image_urls.append(image_url)
+                unique_names.append(album_name)
+    album_names = unique_names  
+        
     display.config(state=tk.NORMAL)
-    display.insert(tk.END,'%d images found\n'% len(image_urls))
+    display.delete("end-2l","end-1l")
+    display.insert(tk.END,'%d '% len(image_urls),("a")) 
+    display.insert(tk.END,'album images found\n')
     display.insert(tk.END,'SAVE ',("a"))
     display.insert(tk.END,'(or Ctrl + S) if this seems reasonable\n' )
-    display.config(state= tk.DISABLED)
-    
-def save_images(dummy=1):
+    display.config(state=tk.DISABLED)
+  
+def generate_links_s(dummy=1):
     global image_urls
+    global image_urls_s
+    global artist_id
+    global current_artist
     global album_names
+    global single_names
+
+    display.configure(state=tk.NORMAL)
+    display.insert(tk.END, 'grabbing images...\n')
+    display.update()
+    display.configure(state=tk.DISABLED)
+    
+    # get albums
+    artist_releases_a = spotObj.artist_albums(artist_id,limit=50)['items'] # all of artists releases 
+    album_indices = [release['album_type'] == 'album' and release['album_group'] == 'album' for release in artist_releases_a]
+    artist_albums = list(compress(artist_releases_a, album_indices)) # only albums
+    # print(json.dumps(artist_albums,sort_keys=True,indent=4))
+    
+    # get singles
+    artist_releases = []
+    results = spotObj.artist_albums(artist_id,limit = 50)
+    while results['next']: # doing this allows us to go over 50
+        results = spotObj.next(results)
+        artist_releases.extend(results['items'])
+    release_types = {release['name']:[release['album_type'],release['album_group']] for release in artist_releases}
+    # pp.pprint(release_types)
+    single_indices = [release['album_type'] == 'single' and release['album_group'] == 'single' for release in artist_releases]
+    artist_singles = list(compress(artist_releases, single_indices))
+    
+    
+    # store album names and images
+    unique_names = [] # to prevent duplciates
+    image_urls = [] # clear image url list
+    for album in artist_albums:
+        album_name = album['name']
+        # first ensure album is a unique entry 
+        if album_name not in unique_names:
+            if album['images']: # then check that image list not empty for album
+                image_url = album['images'][0]['url']
+                image_urls.append(image_url)
+                unique_names.append(album_name)
+    album_names = unique_names  
+    
+    # store single names and images
+    unique_names_s = [] # to prevent duplciates
+    image_urls_s = [] # clear image url list
+    for single in artist_singles:
+        single_name = single['name']
+        # first ensure single is a unique entry 
+        if single_name not in unique_names_s:
+            if single['images']: # then check that image list not empty for single
+                image_url = single['images'][0]['url']
+                image_urls_s.append(image_url)
+                unique_names_s.append(single_name)
+    single_names = unique_names_s
+        
+    display.config(state=tk.NORMAL)
+    display.delete("end-2l","end-1l")
+    display.insert(tk.END,'%d '% len(image_urls),("a")) 
+    display.insert(tk.END,'album images found\n')
+    display.insert(tk.END,'%d '% len(image_urls_s),("a")) 
+    display.insert(tk.END,'and single images found\n')
+    display.insert(tk.END,'SAVE ',("a"))
+    display.insert(tk.END,'(or Ctrl + S) if this seems reasonable\n' )
+    display.config(state=tk.DISABLED)
+
+def save_images(dummy=1):
+    global album_names
+    global image_urls
+    global single_names
+    global image_urls_s
     global current_artist
 
     name = current_artist.replace(' ','_')
@@ -132,7 +217,7 @@ def save_images(dummy=1):
     for char in restricted_chars:
         name = name.replace(char, '')
     folder = name
-    
+        
     display.config(state=tk.NORMAL)
     display.insert(tk.END, 'creating folder...\n')
     display.config(state= tk.DISABLED)
@@ -153,7 +238,7 @@ def save_images(dummy=1):
                 os.mkdir(folder)
                 break
             folder = name
-    
+        
     display.config(state=tk.NORMAL)
     display.delete("end-2l","end-1l")
     display.insert(tk.END, 'saving images...\n')
@@ -167,6 +252,18 @@ def save_images(dummy=1):
             album = album.replace(char, '')
         path = folder + '/' + album + '.jpg'
         urllib.request.urlretrieve(image_url, path)
+    
+    # make singles subfolder and save images if there are singles
+    if single_names:
+
+        subfolder = name + '_singles'
+        os.mkdir(folder + '/' + subfolder)
+        for i,image_url in enumerate(image_urls_s):
+            single = single_names[i]
+            for char in restricted_chars:
+                single = single.replace(char, '')
+            path = folder + '/' + subfolder + '/' + single + '.jpg'
+            urllib.request.urlretrieve(image_url, path)
         
     display.config(state=tk.NORMAL)
     display.delete("end-2l","end-1l")
@@ -185,8 +282,12 @@ idx = np.random.randint(4, size=1)
 # print(idx)
 BG_COL = s.join(cols[idx,0])
 BTN_COL = s.join(cols[idx,1])
+
+# define some globals
 album_names = []
+single_names = []
 image_urls = []
+image_urls_s = []
 current_artist = ''
 
 # Define root properties
@@ -228,7 +329,8 @@ s = '(or Enter) to search\n\n(2) '
 display.insert(tk.END, s)
 s = 'GENERATE '
 display.insert(tk.END, s, ("a"))
-s = '(or Ctrl + G) to generate album covers for that artist\n\n(3) '
+s = '(or Ctrl + G) to generate album covers for that artist\n\
+      (Alt + G to include singles)\n\n(3) '
 display.insert(tk.END, s)
 s = 'SAVE '
 display.insert(tk.END, s, ("a"))
@@ -260,6 +362,7 @@ save_button.config(height = 1, width = 12,background=BG_COL,activebackground=BTN
 
 root.bind('<Return>',search_API)
 root.bind('<Control-g>',generate_links)
+root.bind('<Alt-g>',generate_links_s)
 root.bind('<Control-s>',save_images)
 
 root.mainloop()
